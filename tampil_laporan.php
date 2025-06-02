@@ -23,35 +23,55 @@ if ($kategori !== 'semua') {
     $whereKategori = " AND kategori = '$kategoriEscaped' ";
 }
 
-$sqlInduk = "SELECT * FROM laporan_keuangan WHERE parent_id IS NULL $whereKategori ORDER BY id ASC";
+$sqlInduk = "SELECT lk.*, ln.realisasi, ln.anggaran, ln.anggaran_tahun, ln.ach, ln.growth, ln.ach_lalu, ln.analisis_vertical 
+FROM laporan_keuangan lk 
+LEFT JOIN laporan_nilai ln ON lk.id = ln.laporan_id AND ln.bulan = $bulan AND ln.tahun = $tahun 
+WHERE lk.parent_id IS NULL $whereKategori 
+ORDER BY lk.id ASC";
 $data_laporan = $conn->query($sqlInduk);
 
-function tampilkanSub($conn, $parent_id, $bulan, $tahun, $indent = 0) {
-    $sub = $conn->query("SELECT * FROM laporan_keuangan WHERE parent_id = $parent_id ORDER BY id ASC");
+function tampilkanSub($conn, $parent_id, $bulan, $tahun, &$totals, $indent = 0) {
+    $sub = $conn->query("SELECT lk.*, ln.realisasi, ln.anggaran, ln.anggaran_tahun, ln.ach, ln.growth, ln.ach_lalu, ln.analisis_vertical 
+    FROM laporan_keuangan lk 
+    LEFT JOIN laporan_nilai ln ON lk.id = ln.laporan_id AND ln.bulan = $bulan AND ln.tahun = $tahun 
+    WHERE lk.parent_id = $parent_id ORDER BY lk.id ASC");
     while ($row = $sub->fetch_assoc()) {
         echo "<tr>";
         echo "<td style='padding-left:" . ($indent * 20) . "px'>" . htmlspecialchars($row['kode']) . " " . htmlspecialchars($row['uraian']) . "</td>";
 
-        $id = $row['id'];
-        $nilai = $conn->query("SELECT * FROM laporan_nilai WHERE laporan_id = $id AND bulan = $bulan AND tahun = $tahun LIMIT 1");
-        $val = $nilai->fetch_assoc();
+        $realisasi = $row['realisasi'] ?? 0;
+        $anggaran = $row['anggaran'] ?? 0;
+        $anggaran_tahun = $row['anggaran_tahun'] ?? 0;
+        $ach = $row['ach'] ?? 0;
+        $growth = $row['growth'] ?? 0;
+        $ach_lalu = $row['ach_lalu'] ?? 0;
+        $analisis_vertical = $row['analisis_vertical'] ?? 0;
 
-        echo "<td align='right'>" . number_format($val['realisasi'] ?? 0) . "</td>";
-        echo "<td align='right'>" . number_format($val['anggaran'] ?? 0) . "</td>";
-        echo "<td align='right'>" . number_format($val['anggaran_tahun'] ?? 0) . "</td>";
-        echo "<td align='right'>" . number_format($val['ach'] ?? 0, 2) . "%</td>";
-        echo "<td align='right'>" . number_format($val['growth'] ?? 0, 2) . "%</td>";
-        echo "<td align='right'>" . number_format($val['ach_lalu'] ?? 0, 2) . "%</td>";
-        echo "<td align='right'>" . number_format($val['analisis_vertical'] ?? 0, 2) . "%</td>";
+        echo "<td align='right'>" . number_format($realisasi) . "</td>";
+        echo "<td align='right'>" . number_format($anggaran) . "</td>";
+        echo "<td align='right'>" . number_format($anggaran_tahun) . "</td>";
+        echo "<td align='right'>" . number_format($ach, 2) . "%</td>";
+        echo "<td align='right'>" . number_format($growth, 2) . "%</td>";
+        echo "<td align='right'>" . number_format($ach_lalu, 2) . "%</td>";
+        echo "<td align='right'>" . number_format($analisis_vertical, 2) . "%</td>";
 
         echo "<td>";
-        echo "<a href='edit.php?id=$id&bulan=$bulan&tahun=$tahun' class='btn btn-sm btn-warning me-1'>Edit</a>";
-        echo "<a href='hapus.php?id=$id' class='btn btn-sm btn-danger' onclick='return confirm(\"Yakin hapus data?\")'>Hapus</a>";
+        echo "<a href='edit.php?id=" . $row['id'] . "&bulan=$bulan&tahun=$tahun' class='btn btn-sm btn-warning me-1'>Edit</a>";
+        echo "<a href='hapus.php?id=" . $row['id'] . "' class='btn btn-sm btn-danger' onclick='return confirm(\"Yakin hapus data?\")'>Hapus</a>";
         echo "</td>";
 
         echo "</tr>";
 
-        tampilkanSub($conn, $row['id'], $bulan, $tahun, $indent + 1);
+        $totals['realisasi'] += $realisasi;
+        $totals['anggaran'] += $anggaran;
+        $totals['anggaran_tahun'] += $anggaran_tahun;
+        $totals['ach'] += $ach;
+        $totals['growth'] += $growth;
+        $totals['ach_lalu'] += $ach_lalu;
+        $totals['analisis_vertical'] += $analisis_vertical;
+        $totals['count']++;
+
+        tampilkanSub($conn, $row['id'], $bulan, $tahun, $totals, $indent + 1);
     }
 }
 ?>
@@ -125,33 +145,85 @@ function tampilkanSub($conn, $parent_id, $bulan, $tahun, $indent = 0) {
     </thead>
     <tbody>
         <?php
-        while ($row = $data_laporan->fetch_assoc()) {
-            echo "<tr style='background:#d6f5f3'>";
-            echo "<td class='text-start'><strong>" . htmlspecialchars($row['kode']) . " " . htmlspecialchars($row['uraian']) . "</strong></td>";
+        $totalRealisasi = 0;
+        $totalAnggaran = 0;
+        $totalAnggaranTahun = 0;
+        $totalAch = 0;
+        $totalGrowth = 0;
+        $totalAchLalu = 0;
+        $totalAnalisisVertical = 0;
+        $jumlahBaris = 0;
 
-            $id = $row['id'];
-            $nilai = $conn->query("SELECT * FROM laporan_nilai WHERE laporan_id = $id AND bulan = $bulan AND tahun = $tahun LIMIT 1");
-            $val = $nilai->fetch_assoc();
+while ($row = $data_laporan->fetch_assoc()) {
+    $realisasi = $row['realisasi'] ?? 0;
+    $anggaran = $row['anggaran'] ?? 0;
+    $anggaran_tahun = $row['anggaran_tahun'] ?? 0;
+    $ach = $row['ach'] ?? 0;
+    $growth = $row['growth'] ?? 0;
+    $ach_lalu = $row['ach_lalu'] ?? 0;
+    $analisis_vertical = $row['analisis_vertical'] ?? 0;
 
-            echo "<td><strong>" . number_format($val['realisasi'] ?? 0) . "</strong></td>";
-            echo "<td><strong>" . number_format($val['anggaran'] ?? 0) . "</strong></td>";
-            echo "<td><strong>" . number_format($val['anggaran_tahun'] ?? 0) . "</strong></td>";
-            echo "<td><strong>" . number_format($val['ach'] ?? 0, 2) . "%</strong></td>";
-            echo "<td><strong>" . number_format($val['growth'] ?? 0, 2) . "%</strong></td>";
-            echo "<td><strong>" . number_format($val['ach_lalu'] ?? 0, 2) . "%</strong></td>";
-            echo "<td><strong>" . number_format($val['analisis_vertical'] ?? 0, 2) . "%</strong></td>";
+    echo "<tr style='background:#d6f5f3'>";
+    echo "<td class='text-start'><strong>" . htmlspecialchars($row['kode']) . " " . htmlspecialchars($row['uraian']) . "</strong></td>";
+    echo "<td><strong>" . number_format($realisasi) . "</strong></td>";
+    echo "<td><strong>" . number_format($anggaran) . "</strong></td>";
+    echo "<td><strong>" . number_format($anggaran_tahun) . "</strong></td>";
+    echo "<td><strong>" . number_format($ach, 2) . "%</strong></td>";
+    echo "<td><strong>" . number_format($growth, 2) . "%</strong></td>";
+    echo "<td><strong>" . number_format($ach_lalu, 2) . "%</strong></td>";
+    echo "<td><strong>" . number_format($analisis_vertical, 2) . "%</strong></td>";
+    echo "<td>";
+    echo "<a href='edit.php?id=" . $row['id'] . "&bulan=$bulan&tahun=$tahun' class='btn btn-sm btn-warning me-1'>Edit</a>";
+    echo "<a href='hapus.php?id=" . $row['id'] . "' class='btn btn-sm btn-danger' onclick='return confirm(\"Yakin hapus data?\")'>Hapus</a>";
+    echo "</td>";
+    echo "</tr>";
 
-            echo "<td>";
-            echo "<a href='edit.php?id=$id&bulan=$bulan&tahun=$tahun' class='btn btn-sm btn-warning me-1'>Edit</a>";
-            echo "<a href='hapus.php?id=$id' class='btn btn-sm btn-danger' onclick='return confirm(\"Yakin hapus data?\")'>Hapus</a>";
-            echo "</td>";
+    $totals = [
+        'realisasi' => 0,
+        'anggaran' => 0,
+        'anggaran_tahun' => 0,
+        'ach' => 0,
+        'growth' => 0,
+        'ach_lalu' => 0,
+        'analisis_vertical' => 0,
+        'count' => 0,
+    ];
+    tampilkanSub($conn, $row['id'], $bulan, $tahun, $totals, 1);
 
-            echo "</tr>";
+    $totalRealisasi += $realisasi + $totals['realisasi'];
+    $totalAnggaran += $anggaran + $totals['anggaran'];
+    $totalAnggaranTahun += $anggaran_tahun + $totals['anggaran_tahun'];
 
-            tampilkanSub($conn, $row['id'], $bulan, $tahun, 1);
-        }
+    $totalAch += $ach + $totals['ach'];
+    $totalGrowth += $growth + $totals['growth'];
+    $totalAchLalu += $ach_lalu + $totals['ach_lalu'];
+    $totalAnalisisVertical += $analisis_vertical + $totals['analisis_vertical'];
+
+    $jumlahBaris += 1 + $totals['count'];
+}
+
+        // Hitung rata-rata persentase untuk total (agar tidak overcount)
+        $avgAch = $jumlahBaris ? $totalAch / $jumlahBaris : 0;
+        $avgGrowth = $jumlahBaris ? $totalGrowth / $jumlahBaris : 0;
+        $avgAchLalu = $jumlahBaris ? $totalAchLalu / $jumlahBaris : 0;
+        $avgAnalisisVertical = $jumlahBaris ? $totalAnalisisVertical / $jumlahBaris : 0;
         ?>
+
+        <tr style="background:#f7f7f7; font-weight:bold;">
+            <td>Total</td>
+            <td><?= number_format($totalRealisasi) ?></td>
+            <td><?= number_format($totalAnggaran) ?></td>
+            <td><?= number_format($totalAnggaranTahun) ?></td>
+            <td><?= number_format($avgAch, 2) ?>%</td>
+            <td><?= number_format($avgGrowth, 2) ?>%</td>
+            <td><?= number_format($avgAchLalu, 2) ?>%</td>
+            <td><?= number_format($avgAnalisisVertical, 2) ?>%</td>
+            <td></td>
+        </tr>
     </tbody>
 </table>
 
-<?php include 'footer.php'; ?>
+<?php
+$conn->close();
+include 'footer.php';
+?>

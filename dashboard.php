@@ -7,35 +7,36 @@ if ($conn->connect_error) die("Koneksi gagal: " . $conn->connect_error);
 $bulan = isset($_GET['bulan']) ? (int)$_GET['bulan'] : date('n');
 $tahun = isset($_GET['tahun']) ? (int)$_GET['tahun'] : date('Y');
 
-function getDataKategori($conn, $kategori, $bulan, $tahun) {
-    $sql = "SELECT uraian, SUM(COALESCE(realisasi,0)) AS total_realisasi 
+function getDataRealisasiDanAnggaran($conn, $kategori, $bulan, $tahun) {
+    $sql = "SELECT uraian, 
+                SUM(COALESCE(n.realisasi,0)) AS total_realisasi, 
+                SUM(COALESCE(n.anggaran,0)) AS total_anggaran
             FROM laporan_keuangan l 
             LEFT JOIN laporan_nilai n ON l.id = n.laporan_id AND n.bulan = ? AND n.tahun = ?
-            WHERE kategori = ? 
+            WHERE kategori = ?
             GROUP BY uraian 
             ORDER BY uraian";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("iis", $bulan, $tahun, $kategori);
     $stmt->execute();
     $result = $stmt->get_result();
+
     $labels = [];
-    $values = [];
+    $realisasi = [];
+    $anggaran = [];
+    $total_realisasi = 0;
+    $total_anggaran = 0;
+
     while ($row = $result->fetch_assoc()) {
         $labels[] = $row['uraian'];
-        $values[] = (float)$row['total_realisasi'];
+        $realisasi[] = (float)$row['total_realisasi'];
+        $anggaran[] = (float)$row['total_anggaran'];
+        $total_realisasi += (float)$row['total_realisasi'];
+        $total_anggaran += (float)$row['total_anggaran'];
     }
+
     $stmt->close();
-    return [$labels, $values];
-}
-
-list($labelsPendapatan, $valuesPendapatan) = getDataKategori($conn, 'pendapatan', $bulan, $tahun);
-list($labelsBeban, $valuesBeban) = getDataKategori($conn, 'beban', $bulan, $tahun);
-list($labelsPendapatanPenumpang, $valuesPendapatanPenumpang) = getDataKategori($conn, 'pendapatan_penumpang', $bulan, $tahun);
-list($labelsPendapatanBarang, $valuesPendapatanBarang) = getDataKategori($conn, 'pendapatan_barang', $bulan, $tahun);
-list($labelsPendapatanAsset, $valuesPendapatanAsset) = getDataKategori($conn, 'pendapatan_asset', $bulan, $tahun);
-
-function totalValue($values) {
-    return array_sum($values);
+    return [$labels, $realisasi, $anggaran, $total_realisasi, $total_anggaran];
 }
 
 $namaBulan = [
@@ -45,6 +46,14 @@ $namaBulan = [
 
 $tahunMulai = 2020;
 $tahunSekarang = date('Y');
+
+$dataKategori = [
+    'pendapatan' => getDataRealisasiDanAnggaran($conn, 'pendapatan', $bulan, $tahun),
+    'beban' => getDataRealisasiDanAnggaran($conn, 'beban', $bulan, $tahun),
+    'pendapatan_penumpang' => getDataRealisasiDanAnggaran($conn, 'pendapatan_penumpang', $bulan, $tahun),
+    'pendapatan_barang' => getDataRealisasiDanAnggaran($conn, 'pendapatan_barang', $bulan, $tahun),
+    'pendapatan_asset' => getDataRealisasiDanAnggaran($conn, 'pendapatan_asset', $bulan, $tahun),
+];
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -57,53 +66,17 @@ $tahunSekarang = date('Y');
         body {
             font-family: Arial, sans-serif;
         }
-
-        .sidebar {
-            width: 250px;
-            position: fixed;
-            top: 0; left: 0;
-            height: 100vh;
-            background-color: #f8f9fa;
-            padding-top: 60px;
-            transition: transform 0.3s ease-in-out;
-            z-index: 999;
-        }
-
-        .sidebar.hide {
-            transform: translateX(-100%);
-        }
-
         .main-content {
-            margin-left: 250px;
-            padding: 20px;
-            transition: margin-left 0.3s;
+            margin: 80px 20px 20px 20px;
         }
-
-        .main-content.full {
-            margin-left: 0;
-        }
-
-        .navbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            z-index: 1000;
-        }
-
         .filter-form {
-            margin-top: 80px;
             margin-bottom: 25px;
-            position: relative;
-            z-index: 1;
         }
-
         .dashboard-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
             gap: 20px;
         }
-
         .card {
             border: 1px solid #ddd;
             border-radius: 8px;
@@ -111,32 +84,17 @@ $tahunSekarang = date('Y');
             background: #fff;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-
-        .card h4 {
-            margin-bottom: 10px;
-        }
-
-        .total-value {
-            font-size: 0.9rem;
-            color: #555;
-            margin-bottom: 8px;
-        }
-
-        .sidebar h4 {
-            text-align: center;
-        }
     </style>
 </head>
 <body>
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-success">
+<nav class="navbar navbar-expand-lg navbar-dark bg-success fixed-top">
     <div class="container-fluid">
-        <button class="btn btn-outline-light me-2" id="toggleSidebar">☰</button>
         <a class="navbar-brand" href="#">Dashboard Keuangan</a>
     </div>
 </nav>
 
-<div class="main-content" id="mainContent">
+<div class="main-content">
     <form method="GET" class="filter-form row g-2">
         <div class="col-md-3">
             <label for="bulan" class="form-label">Bulan:</label>
@@ -162,53 +120,49 @@ $tahunSekarang = date('Y');
     <h3>Data Bulan: <?= $namaBulan[$bulan] ?>, Tahun: <?= $tahun ?></h3>
 
     <div class="dashboard-grid">
-        <div class="card">
-            <h4>Pendapatan</h4>
-            <div class="total-value">Total: <?= number_format(totalValue($valuesPendapatan), 0, ',', '.') ?></div>
-            <canvas id="chartPendapatan" height="200"></canvas>
-        </div>
-        <div class="card">
-            <h4>Beban</h4>
-            <div class="total-value">Total: <?= number_format(totalValue($valuesBeban), 0, ',', '.') ?></div>
-            <canvas id="chartBeban" height="200"></canvas>
-        </div>
-        <div class="card">
-            <h4>Pendapatan Penumpang</h4>
-            <div class="total-value">Total: <?= number_format(totalValue($valuesPendapatanPenumpang), 0, ',', '.') ?></div>
-            <canvas id="chartPendapatanPenumpang" height="200"></canvas>
-        </div>
-        <div class="card">
-            <h4>Pendapatan Barang</h4>
-            <div class="total-value">Total: <?= number_format(totalValue($valuesPendapatanBarang), 0, ',', '.') ?></div>
-            <canvas id="chartPendapatanBarang" height="200"></canvas>
-        </div>
-        <div class="card">
-            <h4>Pendapatan Asset</h4>
-            <div class="total-value">Total: <?= number_format(totalValue($valuesPendapatanAsset), 0, ',', '.') ?></div>
-            <canvas id="chartPendapatanAsset" height="200"></canvas>
-        </div>
+        <?php foreach ($dataKategori as $nama => [$labels, $realisasi, $anggaran, $totalRealisasi, $totalAnggaran]): ?>
+            <?php 
+                $selisih = $totalRealisasi - $totalAnggaran;
+                $persen = ($totalAnggaran > 0) ? round(($totalRealisasi / $totalAnggaran) * 100, 2) : 0;
+            ?>
+            <div class="card">
+                <h4><?= ucwords(str_replace('_', ' ', $nama)) ?></h4>
+                <p>
+                    <strong>Total Realisasi:</strong> Rp<?= number_format($totalRealisasi, 0, ',', '.') ?><br>
+                    <strong>Total Anggaran:</strong> Rp<?= number_format($totalAnggaran, 0, ',', '.') ?><br>
+                    <strong>Selisih:</strong> Rp<?= number_format($selisih, 0, ',', '.') ?><br>
+                    <strong>Pencapaian:</strong> <?= $persen ?>%
+                </p>
+                <canvas id="chart_<?= $nama ?>" height="200"></canvas>
+            </div>
+        <?php endforeach; ?>
     </div>
 </div>
 
 <script>
-function createBarChart(ctx, labels, data, label, color) {
-    return new Chart(ctx, {
+function createComparisonChart(ctx, labels, realisasi, anggaran) {
+    new Chart(ctx, {
         type: 'bar',
         data: {
             labels: labels,
-            datasets: [{
-                label: label,
-                data: data,
-                backgroundColor: color,
-                borderRadius: 4,
-                barPercentage: 0.6,
-            }]
+            datasets: [
+                {
+                    label: 'Realisasi',
+                    data: realisasi,
+                    backgroundColor: '#198754'
+                },
+                {
+                    label: 'Anggaran',
+                    data: anggaran,
+                    backgroundColor: '#ffc107'
+                }
+            ]
         },
         options: {
             responsive: true,
             plugins: {
-                legend: { display: false },
-                tooltip: { enabled: true }
+                tooltip: { enabled: true },
+                legend: { position: 'top' }
             },
             scales: {
                 y: { beginAtZero: true }
@@ -217,18 +171,14 @@ function createBarChart(ctx, labels, data, label, color) {
     });
 }
 
-createBarChart(document.getElementById('chartPendapatan'), <?= json_encode($labelsPendapatan) ?>, <?= json_encode($valuesPendapatan) ?>, 'Pendapatan', '#198754');
-createBarChart(document.getElementById('chartBeban'), <?= json_encode($labelsBeban) ?>, <?= json_encode($valuesBeban) ?>, 'Beban', '#dc3545');
-createBarChart(document.getElementById('chartPendapatanPenumpang'), <?= json_encode($labelsPendapatanPenumpang) ?>, <?= json_encode($valuesPendapatanPenumpang) ?>, 'Pendapatan Penumpang', '#0d6efd');
-createBarChart(document.getElementById('chartPendapatanBarang'), <?= json_encode($labelsPendapatanBarang) ?>, <?= json_encode($valuesPendapatanBarang) ?>, 'Pendapatan Barang', '#fd7e14');
-createBarChart(document.getElementById('chartPendapatanAsset'), <?= json_encode($labelsPendapatanAsset) ?>, <?= json_encode($valuesPendapatanAsset) ?>, 'Pendapatan Asset', '#6f42c1');
-
-document.getElementById('toggleSidebar').addEventListener('click', function () {
-    const sidebar = document.getElementById('sidebar');
-    const main = document.getElementById('mainContent');
-    sidebar.classList.toggle('hide');
-    main.classList.toggle('full');
-});
+<?php foreach ($dataKategori as $nama => [$labels, $realisasi, $anggaran]): ?>
+createComparisonChart(
+    document.getElementById('chart_<?= $nama ?>'),
+    <?= json_encode($labels) ?>,
+    <?= json_encode($realisasi) ?>,
+    <?= json_encode($anggaran) ?>
+);
+<?php endforeach; ?>
 </script>
 
 </body>
